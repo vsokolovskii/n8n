@@ -11,32 +11,13 @@ interface MockCommandResult {
 	stderr: string;
 }
 
-interface MockSandboxInfo {
-	sandboxId: string;
-	templateId: string;
-	name?: string;
-	state: 'running' | 'paused';
-	metadata: Record<string, string>;
-	startedAt: Date;
-	endAt: Date;
-	cpuCount: number;
-	memoryMB: number;
-	envdVersion: string;
-}
-
-interface MockSnapshotInfo {
-	snapshotId: string;
-	names: string[];
-}
-
 interface MockSandbox {
 	sandboxId: string;
 	sandboxDomain: string;
 	commands: {
 		run: Mock<(command: string, options?: unknown) => Promise<MockCommandResult>>;
 	};
-	getInfo: Mock<() => Promise<MockSandboxInfo>>;
-	kill: Mock<() => Promise<boolean>>;
+	kill: Mock<(options?: unknown) => Promise<boolean>>;
 }
 
 const { Sandbox, CommandExitError, makeMockSandbox, resetE2BNodeMockState } = vi.hoisted(() => {
@@ -53,21 +34,6 @@ const { Sandbox, CommandExitError, makeMockSandbox, resetE2BNodeMockState } = vi
 		}
 	}
 
-	function makeSandboxInfo(sandboxId: string): MockSandboxInfo {
-		return {
-			sandboxId,
-			templateId: 'base',
-			name: 'base',
-			state: 'running',
-			metadata: {},
-			startedAt: new Date('2026-01-01T00:00:00.000Z'),
-			endAt: new Date('2026-01-01T00:05:00.000Z'),
-			cpuCount: 2,
-			memoryMB: 1024,
-			envdVersion: '0.1.0',
-		};
-	}
-
 	function makeMockSandbox(sandboxId = 'sb-node'): MockSandbox {
 		return {
 			sandboxId,
@@ -75,7 +41,6 @@ const { Sandbox, CommandExitError, makeMockSandbox, resetE2BNodeMockState } = vi
 			commands: {
 				run: vi.fn(async () => ({ exitCode: 0, stdout: 'ok', stderr: '' })),
 			},
-			getInfo: vi.fn(async () => makeSandboxInfo(sandboxId)),
 			kill: vi.fn(async () => true),
 		};
 	}
@@ -83,37 +48,13 @@ const { Sandbox, CommandExitError, makeMockSandbox, resetE2BNodeMockState } = vi
 	const Sandbox = {
 		create: vi.fn(),
 		connect: vi.fn(),
-		list: vi.fn(),
-		listSnapshots: vi.fn(),
-		getInfo: vi.fn(),
-		createSnapshot: vi.fn(),
-		deleteSnapshot: vi.fn(),
-		pause: vi.fn(),
-		kill: vi.fn(),
 	};
 
 	function resetE2BNodeMockState(): void {
 		Sandbox.create.mockReset();
 		Sandbox.connect.mockReset();
-		Sandbox.list.mockReset();
-		Sandbox.listSnapshots.mockReset();
-		Sandbox.getInfo.mockReset();
-		Sandbox.createSnapshot.mockReset();
-		Sandbox.deleteSnapshot.mockReset();
-		Sandbox.pause.mockReset();
-		Sandbox.kill.mockReset();
 		Sandbox.create.mockResolvedValue(makeMockSandbox());
 		Sandbox.connect.mockResolvedValue(makeMockSandbox());
-		Sandbox.list.mockReturnValue({ nextItems: vi.fn(async () => []) });
-		Sandbox.listSnapshots.mockReturnValue({ nextItems: vi.fn(async () => []) });
-		Sandbox.getInfo.mockResolvedValue(makeSandboxInfo('sb-node'));
-		Sandbox.createSnapshot.mockResolvedValue({
-			snapshotId: 'snap-node:default',
-			names: ['team/snap-node:default'],
-		} satisfies MockSnapshotInfo);
-		Sandbox.deleteSnapshot.mockResolvedValue(true);
-		Sandbox.pause.mockResolvedValue(true);
-		Sandbox.kill.mockResolvedValue(true);
 	}
 
 	resetE2BNodeMockState();
@@ -153,16 +94,15 @@ function setupExecuteFunctions(params: Record<string, unknown>) {
 
 function defaultRunCommandParams(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
-		operation: 'runCommand',
 		sandboxId: '',
 		command: 'echo ok',
 		cwd: '',
-		template: '',
-		metadataJson: '{}',
-		envJson: '{}',
-		allowInternetAccess: true,
-		killAfterRun: true,
-		timeoutSeconds: 120,
+		'options.template': '',
+		'options.metadataJson': '{}',
+		'options.envJson': '{}',
+		'options.allowInternetAccess': true,
+		'options.cleanupPolicy': 'auto',
+		'options.timeoutSeconds': 120,
 		...overrides,
 	};
 }
@@ -172,6 +112,142 @@ beforeEach(() => {
 });
 
 describe('E2B node', () => {
+	it('creates a sandbox, runs the command, and cleans up by default', async () => {
+		const sandbox = makeMockSandbox('sb-created');
+		Sandbox.create.mockResolvedValue(sandbox);
+		const executeFunctions = setupExecuteFunctions(defaultRunCommandParams());
+
+		const result = await new E2b().execute.call(executeFunctions);
+
+		expect(Sandbox.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				apiKey: 'api-key',
+				allowInternetAccess: true,
+				requestTimeoutMs: 120_000,
+				timeoutMs: 120_000,
+			}),
+		);
+		expect(sandbox.commands.run).toHaveBeenCalledWith(
+			'echo ok',
+			expect.objectContaining({
+				timeoutMs: 120_000,
+				requestTimeoutMs: 120_000,
+			}),
+		);
+		expect(sandbox.kill).toHaveBeenCalledWith(
+			expect.objectContaining({
+				apiKey: 'api-key',
+				requestTimeoutMs: 120_000,
+			}),
+		);
+		expect(result[0]?.[0]?.json).toEqual(
+			expect.objectContaining({
+				sandboxId: 'sb-created',
+				createdSandbox: true,
+				killedAfterRun: true,
+				success: true,
+				exitCode: 0,
+				stdout: 'ok',
+			}),
+		);
+	});
+
+	it('connects to an existing sandbox and keeps it by default', async () => {
+		const sandbox = makeMockSandbox('sb-existing');
+		Sandbox.connect.mockResolvedValue(sandbox);
+		const executeFunctions = setupExecuteFunctions(
+			defaultRunCommandParams({
+				sandboxId: 'sb-existing',
+			}),
+		);
+
+		const result = await new E2b().execute.call(executeFunctions);
+
+		expect(Sandbox.connect).toHaveBeenCalledWith(
+			'sb-existing',
+			expect.objectContaining({
+				apiKey: 'api-key',
+				requestTimeoutMs: 120_000,
+				timeoutMs: 120_000,
+			}),
+		);
+		expect(sandbox.kill).not.toHaveBeenCalled();
+		expect(result[0]?.[0]?.json).toEqual(
+			expect.objectContaining({
+				sandboxId: 'sb-existing',
+				createdSandbox: false,
+				killedAfterRun: false,
+			}),
+		);
+	});
+
+	it('kills an existing sandbox when cleanup is set to kill', async () => {
+		const sandbox = makeMockSandbox('sb-existing');
+		Sandbox.connect.mockResolvedValue(sandbox);
+		const executeFunctions = setupExecuteFunctions(
+			defaultRunCommandParams({
+				sandboxId: 'sb-existing',
+				'options.cleanupPolicy': 'kill',
+			}),
+		);
+
+		const result = await new E2b().execute.call(executeFunctions);
+
+		expect(sandbox.kill).toHaveBeenCalledWith(
+			expect.objectContaining({
+				apiKey: 'api-key',
+				requestTimeoutMs: 120_000,
+			}),
+		);
+		expect(result[0]?.[0]?.json).toEqual(
+			expect.objectContaining({
+				sandboxId: 'sb-existing',
+				createdSandbox: false,
+				killedAfterRun: true,
+			}),
+		);
+	});
+
+	it('passes sandbox and command options to E2B', async () => {
+		const sandbox = makeMockSandbox('sb-options');
+		Sandbox.create.mockResolvedValue(sandbox);
+		const executeFunctions = setupExecuteFunctions(
+			defaultRunCommandParams({
+				cwd: '/workspace',
+				'options.template': 'python3',
+				'options.metadataJson': '{"workflow":"test"}',
+				'options.envJson': '{"NODE_ENV":"test","RETRIES":2}',
+				'options.allowInternetAccess': false,
+				'options.cleanupPolicy': 'keep',
+			}),
+		);
+
+		const result = await new E2b().execute.call(executeFunctions);
+
+		expect(Sandbox.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				template: 'python3',
+				metadata: { workflow: 'test' },
+				envs: { NODE_ENV: 'test', RETRIES: '2' },
+				allowInternetAccess: false,
+			}),
+		);
+		expect(sandbox.commands.run).toHaveBeenCalledWith(
+			'echo ok',
+			expect.objectContaining({
+				cwd: '/workspace',
+				envs: { NODE_ENV: 'test', RETRIES: '2' },
+			}),
+		);
+		expect(sandbox.kill).not.toHaveBeenCalled();
+		expect(result[0]?.[0]?.json).toEqual(
+			expect.objectContaining({
+				sandboxId: 'sb-options',
+				killedAfterRun: false,
+			}),
+		);
+	});
+
 	it('kills a created sandbox when command execution fails unexpectedly', async () => {
 		const sandbox = makeMockSandbox('sb-cleanup');
 		sandbox.commands.run.mockRejectedValue(new Error('network reset'));
@@ -215,7 +291,7 @@ describe('E2B node', () => {
 		);
 	});
 
-	it('fails visibly when killAfterRun cleanup fails after a successful command', async () => {
+	it('fails visibly when cleanup fails after a successful command', async () => {
 		const sandbox = makeMockSandbox('sb-cleanup-fail');
 		sandbox.kill.mockRejectedValue(new Error('cleanup failed'));
 		Sandbox.create.mockResolvedValue(sandbox);
@@ -233,83 +309,5 @@ describe('E2B node', () => {
 		if (error instanceof Error) {
 			expect(error.message).toMatch(/cleanup failed/i);
 		}
-	});
-
-	it('creates a snapshot from a sandbox', async () => {
-		const executeFunctions = setupExecuteFunctions({
-			operation: 'createSnapshot',
-			sandboxId: 'sb-source',
-			snapshotName: 'checkpoint',
-			timeoutSeconds: 120,
-		});
-
-		const result = await new E2b().execute.call(executeFunctions);
-
-		expect(Sandbox.createSnapshot).toHaveBeenCalledWith(
-			'sb-source',
-			expect.objectContaining({
-				apiKey: 'api-key',
-				name: 'checkpoint',
-				requestTimeoutMs: 120_000,
-			}),
-		);
-		expect(result[0]?.[0]?.json).toEqual({
-			snapshotId: 'snap-node:default',
-			names: ['team/snap-node:default'],
-		});
-	});
-
-	it('lists snapshots with an optional source sandbox filter', async () => {
-		Sandbox.listSnapshots.mockReturnValue({
-			nextItems: vi.fn(async () => [
-				{
-					snapshotId: 'snap-one:default',
-					names: ['team/snap-one:default'],
-				},
-			]),
-		});
-		const executeFunctions = setupExecuteFunctions({
-			operation: 'listSnapshots',
-			sandboxId: 'sb-source',
-			limit: 10,
-			timeoutSeconds: 120,
-		});
-
-		const result = await new E2b().execute.call(executeFunctions);
-
-		expect(Sandbox.listSnapshots).toHaveBeenCalledWith(
-			expect.objectContaining({
-				apiKey: 'api-key',
-				sandboxId: 'sb-source',
-				limit: 10,
-				requestTimeoutMs: 120_000,
-			}),
-		);
-		expect(result[0]?.[0]?.json).toEqual({
-			snapshotId: 'snap-one:default',
-			names: ['team/snap-one:default'],
-		});
-	});
-
-	it('deletes a snapshot', async () => {
-		const executeFunctions = setupExecuteFunctions({
-			operation: 'deleteSnapshot',
-			snapshotId: 'snap-node:default',
-			timeoutSeconds: 120,
-		});
-
-		const result = await new E2b().execute.call(executeFunctions);
-
-		expect(Sandbox.deleteSnapshot).toHaveBeenCalledWith(
-			'snap-node:default',
-			expect.objectContaining({
-				apiKey: 'api-key',
-				requestTimeoutMs: 120_000,
-			}),
-		);
-		expect(result[0]?.[0]?.json).toEqual({
-			snapshotId: 'snap-node:default',
-			deleted: true,
-		});
 	});
 });

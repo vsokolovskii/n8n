@@ -3,9 +3,7 @@ import type {
 	Sandbox as E2BSandboxInstance,
 	SandboxApiOpts,
 	SandboxConnectOpts,
-	SandboxInfo as E2BSandboxInfo,
 	SandboxOpts,
-	SnapshotInfo as E2BSnapshotInfo,
 } from 'e2b';
 import type * as E2BSDK from 'e2b';
 import type {
@@ -20,28 +18,9 @@ import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 type E2BModule = typeof E2BSDK;
 
-type Operation =
-	| 'create'
-	| 'createSnapshot'
-	| 'deleteSnapshot'
-	| 'get'
-	| 'kill'
-	| 'list'
-	| 'listSnapshots'
-	| 'pause'
-	| 'runCommand';
+type CleanupPolicy = 'auto' | 'keep' | 'kill';
 
-const OPERATIONS: Operation[] = [
-	'create',
-	'createSnapshot',
-	'deleteSnapshot',
-	'get',
-	'kill',
-	'list',
-	'listSnapshots',
-	'pause',
-	'runCommand',
-];
+const CLEANUP_POLICIES: CleanupPolicy[] = ['auto', 'keep', 'kill'];
 
 let e2bModule: E2BModule | undefined;
 
@@ -50,8 +29,8 @@ async function loadE2B(): Promise<E2BModule> {
 	return e2bModule;
 }
 
-function isOperation(value: unknown): value is Operation {
-	return typeof value === 'string' && OPERATIONS.some((operation) => operation === value);
+function isCleanupPolicy(value: unknown): value is CleanupPolicy {
+	return typeof value === 'string' && CLEANUP_POLICIES.some((policy) => policy === value);
 }
 
 function asNonEmptyString(value: unknown): string | undefined {
@@ -117,9 +96,27 @@ function parseStringMapParameter(
 	return Object.keys(output).length > 0 ? output : undefined;
 }
 
+function getNodeParameterWithLegacy(
+	executeFunctions: IExecuteFunctions,
+	name: string,
+	legacyName: string,
+	itemIndex: number,
+	fallback: unknown,
+): unknown {
+	const value = executeFunctions.getNodeParameter(name, itemIndex, undefined);
+	if (value !== undefined) return value;
+	return executeFunctions.getNodeParameter(legacyName, itemIndex, fallback);
+}
+
 function getTimeoutMs(executeFunctions: IExecuteFunctions, itemIndex: number): number {
 	const timeoutSeconds = Number(
-		executeFunctions.getNodeParameter('timeoutSeconds', itemIndex, 300),
+		getNodeParameterWithLegacy(
+			executeFunctions,
+			'options.timeoutSeconds',
+			'timeoutSeconds',
+			itemIndex,
+			300,
+		),
 	);
 
 	if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
@@ -129,18 +126,6 @@ function getTimeoutMs(executeFunctions: IExecuteFunctions, itemIndex: number): n
 	}
 
 	return Math.round(timeoutSeconds * 1000);
-}
-
-function getLimit(executeFunctions: IExecuteFunctions, itemIndex: number): number {
-	const limit = Number(executeFunctions.getNodeParameter('limit', itemIndex, 50));
-
-	if (!Number.isInteger(limit) || limit <= 0) {
-		throw new NodeOperationError(executeFunctions.getNode(), 'Limit must be a positive integer', {
-			itemIndex,
-		});
-	}
-
-	return limit;
 }
 
 function getRequiredStringParameter(
@@ -156,6 +141,29 @@ function getRequiredStringParameter(
 		});
 	}
 	return value;
+}
+
+function getCleanupPolicy(executeFunctions: IExecuteFunctions, itemIndex: number): CleanupPolicy {
+	const rawPolicy = executeFunctions.getNodeParameter('options.cleanupPolicy', itemIndex, undefined);
+	if (rawPolicy === undefined) {
+		const legacyKillAfterRun = executeFunctions.getNodeParameter('killAfterRun', itemIndex, undefined);
+		if (typeof legacyKillAfterRun === 'boolean') return legacyKillAfterRun ? 'kill' : 'keep';
+		return 'auto';
+	}
+
+	if (!isCleanupPolicy(rawPolicy)) {
+		throw new NodeOperationError(executeFunctions.getNode(), 'Cleanup must be auto, keep, or kill', {
+			itemIndex,
+		});
+	}
+
+	return rawPolicy;
+}
+
+function shouldKillSandbox(cleanupPolicy: CleanupPolicy, createdSandbox: boolean): boolean {
+	if (cleanupPolicy === 'kill') return true;
+	if (cleanupPolicy === 'keep') return false;
+	return createdSandbox;
 }
 
 function buildBaseConnectionOpts(
@@ -206,21 +214,41 @@ function getCreateOpts(
 	itemIndex: number,
 ): SandboxOpts {
 	const timeoutMs = getTimeoutMs(executeFunctions, itemIndex);
-	const template = asNonEmptyString(executeFunctions.getNodeParameter('template', itemIndex, ''));
+	const template = asNonEmptyString(
+		getNodeParameterWithLegacy(
+			executeFunctions,
+			'options.template',
+			'template',
+			itemIndex,
+			'',
+		),
+	);
 	const metadata = parseStringMapParameter(
 		executeFunctions,
-		executeFunctions.getNodeParameter('metadataJson', itemIndex, ''),
+		getNodeParameterWithLegacy(
+			executeFunctions,
+			'options.metadataJson',
+			'metadataJson',
+			itemIndex,
+			'',
+		),
 		'Metadata',
 		itemIndex,
 	);
 	const envs = parseStringMapParameter(
 		executeFunctions,
-		executeFunctions.getNodeParameter('envJson', itemIndex, ''),
-		'Environment Variables',
+		getNodeParameterWithLegacy(executeFunctions, 'options.envJson', 'envJson', itemIndex, ''),
+		'Environment variables',
 		itemIndex,
 	);
 	const allowInternetAccess =
-		executeFunctions.getNodeParameter('allowInternetAccess', itemIndex, true) === true;
+		getNodeParameterWithLegacy(
+			executeFunctions,
+			'options.allowInternetAccess',
+			'allowInternetAccess',
+			itemIndex,
+			true,
+		) === true;
 
 	return {
 		...buildBaseConnectionOpts(credentials, timeoutMs),
@@ -229,35 +257,6 @@ function getCreateOpts(
 		...(envs ? { envs } : {}),
 		allowInternetAccess,
 		timeoutMs,
-	};
-}
-
-function toIsoString(value: Date | string | undefined): string | undefined {
-	if (value instanceof Date) return value.toISOString();
-	return value;
-}
-
-function toSandboxInfoData(info: E2BSandboxInfo, sandboxDomain?: string): IDataObject {
-	return {
-		sandboxId: info.sandboxId,
-		templateId: info.templateId,
-		name: info.name,
-		state: info.state,
-		metadata: info.metadata ?? {},
-		startedAt: toIsoString(info.startedAt),
-		endAt: toIsoString(info.endAt),
-		cpuCount: info.cpuCount,
-		memoryMB: info.memoryMB,
-		envdVersion: info.envdVersion,
-		allowInternetAccess: info.allowInternetAccess,
-		sandboxDomain: sandboxDomain ?? info.sandboxDomain,
-	};
-}
-
-function toSnapshotInfoData(info: E2BSnapshotInfo): IDataObject {
-	return {
-		snapshotId: info.snapshotId,
-		names: info.names,
 	};
 }
 
@@ -293,8 +292,8 @@ export class E2b implements INodeType {
 		},
 		group: ['transform'],
 		version: 1,
-		subtitle: '={{ $parameter["operation"] }}',
-		description: 'Run commands and manage E2B sandboxes',
+		subtitle: '={{ $parameter["sandboxId"] ? "Existing sandbox" : "New sandbox" }}',
+		description: 'Run a command in an E2B sandbox',
 		defaults: {
 			name: 'E2B',
 		},
@@ -309,106 +308,12 @@ export class E2b implements INodeType {
 		],
 		properties: [
 			{
-				displayName: 'Operation',
-				name: 'operation',
-				type: 'options',
-				noDataExpression: true,
-				options: [
-					{
-						name: 'Create Sandbox',
-						value: 'create',
-						action: 'Create a sandbox',
-					},
-					{
-						name: 'Create Snapshot',
-						value: 'createSnapshot',
-						action: 'Create a snapshot',
-					},
-					{
-						name: 'Delete Snapshot',
-						value: 'deleteSnapshot',
-						action: 'Delete a snapshot',
-					},
-					{
-						name: 'Get Sandbox',
-						value: 'get',
-						action: 'Get a sandbox',
-					},
-					{
-						name: 'Kill Sandbox',
-						value: 'kill',
-						action: 'Kill a sandbox',
-					},
-					{
-						name: 'List Sandboxes',
-						value: 'list',
-						action: 'List sandboxes',
-					},
-					{
-						name: 'List Snapshots',
-						value: 'listSnapshots',
-						action: 'List snapshots',
-					},
-					{
-						name: 'Pause Sandbox',
-						value: 'pause',
-						action: 'Pause a sandbox',
-					},
-					{
-						name: 'Run Command',
-						value: 'runCommand',
-						action: 'Run a command in a sandbox',
-					},
-				],
-				default: 'runCommand',
-			},
-			{
-				displayName: 'Sandbox ID',
-				name: 'sandboxId',
-				type: 'string',
-				required: true,
-				default: '',
-				displayOptions: {
-					show: {
-						operation: ['createSnapshot', 'get', 'kill', 'pause'],
-					},
-				},
-			},
-			{
-				displayName: 'Snapshot ID',
-				name: 'snapshotId',
-				type: 'string',
-				required: true,
-				default: '',
-				displayOptions: {
-					show: {
-						operation: ['deleteSnapshot'],
-					},
-				},
-			},
-			{
 				displayName: 'Sandbox ID',
 				name: 'sandboxId',
 				type: 'string',
 				default: '',
-				description: 'Existing sandbox ID. Leave empty to create a sandbox for this command.',
-				displayOptions: {
-					show: {
-						operation: ['runCommand'],
-					},
-				},
-			},
-			{
-				displayName: 'Sandbox ID',
-				name: 'sandboxId',
-				type: 'string',
-				default: '',
-				description: 'Optional source sandbox ID to filter snapshots by',
-				displayOptions: {
-					show: {
-						operation: ['listSnapshots'],
-					},
-				},
+				description:
+					'Optional sandbox to run the command in. Leave empty to create a sandbox for this execution.',
 			},
 			{
 				displayName: 'Command',
@@ -420,119 +325,85 @@ export class E2b implements INodeType {
 				typeOptions: {
 					rows: 4,
 				},
-				displayOptions: {
-					show: {
-						operation: ['runCommand'],
-					},
-				},
 			},
 			{
 				displayName: 'Working Directory',
 				name: 'cwd',
 				type: 'string',
 				default: '',
-				displayOptions: {
-					show: {
-						operation: ['runCommand'],
-					},
-				},
+				description: 'Directory where the command runs',
 			},
 			{
-				displayName: 'Template or Snapshot ID',
-				name: 'template',
-				type: 'string',
-				default: '',
-				description:
-					'E2B template name/ID or snapshot ID. Leave empty to use the default E2B sandbox template.',
-				displayOptions: {
-					show: {
-						operation: ['create', 'runCommand'],
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				placeholder: 'Add option',
+				default: {},
+				options: [
+					{
+						displayName: 'Template or Snapshot ID',
+						name: 'template',
+						type: 'string',
+						default: '',
+						description:
+							'E2B template or snapshot to use when this node creates a sandbox. Leave empty to use the default E2B template.',
 					},
-				},
-			},
-			{
-				displayName: 'Snapshot Name',
-				name: 'snapshotName',
-				type: 'string',
-				default: '',
-				description: 'Optional name for the snapshot template',
-				displayOptions: {
-					show: {
-						operation: ['createSnapshot'],
+					{
+						displayName: 'Metadata',
+						name: 'metadataJson',
+						type: 'json',
+						default: '{}',
+						description: 'Metadata to attach when this node creates a sandbox',
 					},
-				},
-			},
-			{
-				displayName: 'Metadata',
-				name: 'metadataJson',
-				type: 'json',
-				default: '{}',
-				description: 'Metadata to attach when creating a sandbox',
-				displayOptions: {
-					show: {
-						operation: ['create', 'runCommand'],
+					{
+						displayName: 'Environment Variables',
+						name: 'envJson',
+						type: 'json',
+						default: '{}',
+						description: 'Environment variables to set for the sandbox and command',
 					},
-				},
-			},
-			{
-				displayName: 'Environment Variables',
-				name: 'envJson',
-				type: 'json',
-				default: '{}',
-				description: 'Environment variables to set for the sandbox or command',
-				displayOptions: {
-					show: {
-						operation: ['create', 'runCommand'],
+					{
+						displayName: 'Allow Internet Access',
+						name: 'allowInternetAccess',
+						type: 'boolean',
+						default: true,
+						description: 'Whether the sandbox can access the internet',
 					},
-				},
-			},
-			{
-				displayName: 'Allow Internet Access',
-				name: 'allowInternetAccess',
-				type: 'boolean',
-				default: true,
-				displayOptions: {
-					show: {
-						operation: ['create', 'runCommand'],
+					{
+						displayName: 'Cleanup',
+						name: 'cleanupPolicy',
+						type: 'options',
+						noDataExpression: true,
+						options: [
+							{
+								name: 'Auto',
+								value: 'auto',
+								description: 'Kill sandboxes created by this node and keep existing sandboxes',
+							},
+							{
+								name: 'Keep Sandbox',
+								value: 'keep',
+								description: 'Keep the sandbox running after the command finishes',
+							},
+							{
+								name: 'Kill Sandbox',
+								value: 'kill',
+								description: 'Kill the sandbox after the command finishes',
+							},
+						],
+						default: 'auto',
 					},
-				},
-			},
-			{
-				displayName: 'Kill Sandbox After Run',
-				name: 'killAfterRun',
-				type: 'boolean',
-				default: false,
-				description: 'Whether to kill the sandbox after running the command',
-				displayOptions: {
-					show: {
-						operation: ['runCommand'],
+					{
+						displayName: 'Timeout',
+						name: 'timeoutSeconds',
+						type: 'number',
+						typeOptions: {
+							minValue: 1,
+						},
+						default: 300,
+						description: 'Timeout in seconds for the E2B operation',
 					},
-				},
-			},
-			{
-				displayName: 'Limit',
-				name: 'limit',
-				type: 'number',
-				typeOptions: {
-					minValue: 1,
-				},
-				default: 50,
-				description: 'Max number of results to return',
-				displayOptions: {
-					show: {
-						operation: ['list', 'listSnapshots'],
-					},
-				},
-			},
-			{
-				displayName: 'Timeout',
-				name: 'timeoutSeconds',
-				type: 'number',
-				typeOptions: {
-					minValue: 1,
-				},
-				default: 300,
-				description: 'Timeout in seconds for the E2B operation',
+				],
 			},
 		],
 	};
@@ -545,142 +416,19 @@ export class E2b implements INodeType {
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			try {
-				const rawOperation = this.getNodeParameter('operation', itemIndex);
-				if (!isOperation(rawOperation)) {
-					throw new NodeOperationError(
-						this.getNode(),
-						`The operation "${rawOperation}" is not known`,
-						{
-							itemIndex,
-						},
-					);
-				}
-
 				const timeoutMs = getTimeoutMs(this, itemIndex);
-
-				if (rawOperation === 'create') {
-					const sandbox = await Sandbox.create(getCreateOpts(this, credentials, itemIndex));
-					const info = await sandbox.getInfo(buildApiOpts(credentials, timeoutMs));
-					returnData.push({
-						json: toSandboxInfoData(info, sandbox.sandboxDomain),
-						pairedItem: { item: itemIndex },
-					});
-					continue;
-				}
-
-				if (rawOperation === 'list') {
-					const paginator = Sandbox.list({
-						...buildApiOpts(credentials, timeoutMs),
-						limit: getLimit(this, itemIndex),
-					});
-					const sandboxes = await paginator.nextItems();
-					for (const sandbox of sandboxes) {
-						returnData.push({
-							json: toSandboxInfoData(sandbox),
-							pairedItem: { item: itemIndex },
-						});
-					}
-					continue;
-				}
-
-				if (rawOperation === 'createSnapshot') {
-					const sandboxId = getRequiredStringParameter(this, 'sandboxId', 'Sandbox ID', itemIndex);
-					const snapshotName = asNonEmptyString(
-						this.getNodeParameter('snapshotName', itemIndex, ''),
-					);
-					const snapshot = await Sandbox.createSnapshot(sandboxId, {
-						...buildApiOpts(credentials, timeoutMs),
-						...(snapshotName ? { name: snapshotName } : {}),
-					});
-					returnData.push({
-						json: toSnapshotInfoData(snapshot),
-						pairedItem: { item: itemIndex },
-					});
-					continue;
-				}
-
-				if (rawOperation === 'listSnapshots') {
-					const sandboxId = asNonEmptyString(this.getNodeParameter('sandboxId', itemIndex, ''));
-					const paginator = Sandbox.listSnapshots({
-						...buildApiOpts(credentials, timeoutMs),
-						...(sandboxId ? { sandboxId } : {}),
-						limit: getLimit(this, itemIndex),
-					});
-					const snapshots = await paginator.nextItems();
-					for (const snapshot of snapshots) {
-						returnData.push({
-							json: toSnapshotInfoData(snapshot),
-							pairedItem: { item: itemIndex },
-						});
-					}
-					continue;
-				}
-
-				if (rawOperation === 'deleteSnapshot') {
-					const snapshotId = getRequiredStringParameter(
-						this,
-						'snapshotId',
-						'Snapshot ID',
-						itemIndex,
-					);
-					const deleted = await Sandbox.deleteSnapshot(snapshotId, buildApiOpts(credentials, timeoutMs));
-					returnData.push({
-						json: {
-							snapshotId,
-							deleted,
-						},
-						pairedItem: { item: itemIndex },
-					});
-					continue;
-				}
-
-				if (rawOperation === 'get') {
-					const sandboxId = getRequiredStringParameter(this, 'sandboxId', 'Sandbox ID', itemIndex);
-					const info = await Sandbox.getInfo(sandboxId, buildApiOpts(credentials, timeoutMs));
-					returnData.push({
-						json: toSandboxInfoData(info),
-						pairedItem: { item: itemIndex },
-					});
-					continue;
-				}
-
-				if (rawOperation === 'pause') {
-					const sandboxId = getRequiredStringParameter(this, 'sandboxId', 'Sandbox ID', itemIndex);
-					await Sandbox.pause(sandboxId, buildApiOpts(credentials, timeoutMs));
-					returnData.push({
-						json: {
-							sandboxId,
-							paused: true,
-						},
-						pairedItem: { item: itemIndex },
-					});
-					continue;
-				}
-
-				if (rawOperation === 'kill') {
-					const sandboxId = getRequiredStringParameter(this, 'sandboxId', 'Sandbox ID', itemIndex);
-					await Sandbox.kill(sandboxId, buildApiOpts(credentials, timeoutMs));
-					returnData.push({
-						json: {
-							sandboxId,
-							killed: true,
-						},
-						pairedItem: { item: itemIndex },
-					});
-					continue;
-				}
-
 				const sandboxId = asNonEmptyString(this.getNodeParameter('sandboxId', itemIndex, ''));
 				const command = getRequiredStringParameter(this, 'command', 'Command', itemIndex);
 				const cwd = asNonEmptyString(this.getNodeParameter('cwd', itemIndex, ''));
-				const killAfterRun = this.getNodeParameter('killAfterRun', itemIndex, false) === true;
+				const cleanupPolicy = getCleanupPolicy(this, itemIndex);
 				const envs = parseStringMapParameter(
 					this,
-					this.getNodeParameter('envJson', itemIndex, ''),
-					'Environment Variables',
+					getNodeParameterWithLegacy(this, 'options.envJson', 'envJson', itemIndex, ''),
+					'Environment variables',
 					itemIndex,
 				);
 				const createdSandbox = !sandboxId;
+				const killAfterRun = shouldKillSandbox(cleanupPolicy, createdSandbox);
 				const sandbox = sandboxId
 					? await Sandbox.connect(sandboxId, buildConnectOpts(credentials, timeoutMs))
 					: await Sandbox.create(getCreateOpts(this, credentials, itemIndex));
@@ -732,7 +480,7 @@ export class E2b implements INodeType {
 					if (cleanupError) {
 						throw new NodeOperationError(
 							this.getNode(),
-							`E2B command failed and the sandbox could not be killed: ${getErrorMessage(executionError)}; cleanup error: ${getErrorMessage(cleanupError)}`,
+							`E2B command failed, and sandbox cleanup also failed: ${getErrorMessage(executionError)}; cleanup error: ${getErrorMessage(cleanupError)}`,
 							{ itemIndex },
 						);
 					}
@@ -745,7 +493,7 @@ export class E2b implements INodeType {
 				if (cleanupError) {
 					throw new NodeOperationError(
 						this.getNode(),
-						`E2B command succeeded but the sandbox could not be killed: ${getErrorMessage(cleanupError)}`,
+						`Sandbox cleanup failed after the E2B command finished: ${getErrorMessage(cleanupError)}`,
 						{ itemIndex },
 					);
 				}
