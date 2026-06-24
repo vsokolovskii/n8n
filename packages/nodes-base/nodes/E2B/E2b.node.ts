@@ -103,9 +103,25 @@ function getNodeParameterWithLegacy(
 	itemIndex: number,
 	fallback: unknown,
 ): unknown {
-	const value = executeFunctions.getNodeParameter(name, itemIndex, undefined);
+	const value = getNodeParameterOrFallback(executeFunctions, name, itemIndex, undefined);
 	if (value !== undefined) return value;
-	return executeFunctions.getNodeParameter(legacyName, itemIndex, fallback);
+	return getNodeParameterOrFallback(executeFunctions, legacyName, itemIndex, fallback);
+}
+
+function getNodeParameterOrFallback(
+	executeFunctions: IExecuteFunctions,
+	name: string,
+	itemIndex: number,
+	fallback: unknown,
+): unknown {
+	try {
+		return executeFunctions.getNodeParameter(name, itemIndex, fallback);
+	} catch (error) {
+		if (error instanceof Error && error.message === `Could not get parameter "${name}"`) {
+			return fallback;
+		}
+		throw error;
+	}
 }
 
 function getTimeoutMs(executeFunctions: IExecuteFunctions, itemIndex: number): number {
@@ -144,9 +160,19 @@ function getRequiredStringParameter(
 }
 
 function getCleanupPolicy(executeFunctions: IExecuteFunctions, itemIndex: number): CleanupPolicy {
-	const rawPolicy = executeFunctions.getNodeParameter('options.cleanupPolicy', itemIndex, undefined);
+	const rawPolicy = getNodeParameterOrFallback(
+		executeFunctions,
+		'options.cleanupPolicy',
+		itemIndex,
+		undefined,
+	);
 	if (rawPolicy === undefined) {
-		const legacyKillAfterRun = executeFunctions.getNodeParameter('killAfterRun', itemIndex, undefined);
+		const legacyKillAfterRun = getNodeParameterOrFallback(
+			executeFunctions,
+			'killAfterRun',
+			itemIndex,
+			undefined,
+		);
 		if (typeof legacyKillAfterRun === 'boolean') return legacyKillAfterRun ? 'kill' : 'keep';
 		return 'auto';
 	}

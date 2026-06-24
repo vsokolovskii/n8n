@@ -72,7 +72,10 @@ vi.mock('e2b', () => ({
 	CommandExitError,
 }));
 
-function setupExecuteFunctions(params: Record<string, unknown>) {
+function setupExecuteFunctions(
+	params: Record<string, unknown>,
+	options: { throwOnMissingNestedParameter?: boolean } = {},
+) {
 	const executeFunctions = mockDeep<IExecuteFunctions>();
 	executeFunctions.getInputData.mockReturnValue([{ json: {} }]);
 	executeFunctions.getCredentials.mockResolvedValue({ apiKey: 'api-key' });
@@ -85,8 +88,13 @@ function setupExecuteFunctions(params: Record<string, unknown>) {
 		parameters: {},
 	});
 	executeFunctions.getNodeParameter.mockImplementation(
-		(name: string, _itemIndex?: number, fallback?: unknown) =>
-			(params[name] ?? fallback) as never,
+		(name: string, _itemIndex?: number, fallback?: unknown) => {
+			if (Object.prototype.hasOwnProperty.call(params, name)) return params[name] as never;
+			if (options.throwOnMissingNestedParameter && name.includes('.') && fallback === undefined) {
+				throw new Error(`Could not get parameter "${name}"`);
+			}
+			return fallback as never;
+		},
 	);
 	executeFunctions.continueOnFail.mockReturnValue(false);
 	return executeFunctions;
@@ -148,6 +156,50 @@ describe('E2B node', () => {
 				success: true,
 				exitCode: 0,
 				stdout: 'ok',
+			}),
+		);
+	});
+
+	it('uses default advanced options when the options collection is empty', async () => {
+		const sandbox = makeMockSandbox('sb-empty-options');
+		Sandbox.create.mockResolvedValue(sandbox);
+		const executeFunctions = setupExecuteFunctions(
+			{
+				sandboxId: '',
+				command: 'echo ok',
+				cwd: '',
+			},
+			{ throwOnMissingNestedParameter: true },
+		);
+
+		const result = await new E2b().execute.call(executeFunctions);
+
+		expect(Sandbox.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				allowInternetAccess: true,
+				requestTimeoutMs: 300_000,
+				timeoutMs: 300_000,
+			}),
+		);
+		expect(sandbox.commands.run).toHaveBeenCalledWith(
+			'echo ok',
+			expect.objectContaining({
+				timeoutMs: 300_000,
+				requestTimeoutMs: 300_000,
+			}),
+		);
+		expect(sandbox.kill).toHaveBeenCalledWith(
+			expect.objectContaining({
+				apiKey: 'api-key',
+				requestTimeoutMs: 300_000,
+			}),
+		);
+		expect(result[0]?.[0]?.json).toEqual(
+			expect.objectContaining({
+				sandboxId: 'sb-empty-options',
+				createdSandbox: true,
+				killedAfterRun: true,
+				success: true,
 			}),
 		);
 	});
