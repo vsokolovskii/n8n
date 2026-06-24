@@ -37,7 +37,7 @@ const showImageField = computed(() => {
 });
 
 function handleProviderChange(value: string | number | boolean | null) {
-	if (value === 'n8n-sandbox' || value === 'daytona') {
+	if (value === 'n8n-sandbox' || value === 'daytona' || value === 'e2b') {
 		store.setField('sandboxProvider', value);
 	}
 }
@@ -137,6 +137,7 @@ watch(
 			<N8nSelect :model-value="provider" size="small" @update:model-value="handleProviderChange">
 				<N8nOption value="n8n-sandbox" label="n8n Sandbox Service" />
 				<N8nOption value="daytona" label="Daytona" />
+				<N8nOption value="e2b" label="E2B" />
 			</N8nSelect>
 		</N8nInputLabel>
 

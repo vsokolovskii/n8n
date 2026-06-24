@@ -1,4 +1,5 @@
 import type { CreateSandboxFromImageParams } from '@daytonaio/sdk';
+import type { SandboxLifecycle, SandboxNetworkOpts } from 'e2b';
 
 import type { BaseFilesystemOptions } from '../filesystem/base-filesystem';
 import type {
@@ -51,7 +52,7 @@ export type {
 	WriteOptions,
 };
 
-export type SandboxProvider = 'daytona' | 'n8n-sandbox';
+export type SandboxProvider = 'daytona' | 'n8n-sandbox' | 'e2b';
 
 export interface SandboxConfigBase {
 	provider: SandboxProvider;
@@ -94,7 +95,30 @@ export interface N8nSandboxConfig extends SandboxConfigBase {
 	apiKey?: string;
 }
 
-export type SandboxConfig = DisabledSandboxConfig | DaytonaSandboxConfig | N8nSandboxConfig;
+export interface E2BSandboxConfig extends SandboxConfigBase {
+	enabled: true;
+	provider: 'e2b';
+	/** Remote E2B sandbox ID. E2B does not support caller-selected sandbox names. */
+	id?: string;
+	apiKey?: string;
+	apiUrl?: string;
+	domain?: string;
+	sandboxUrl?: string;
+	template?: string;
+	requestTimeoutMs?: number;
+	metadata?: Record<string, string>;
+	env?: Record<string, string>;
+	secure?: boolean;
+	allowInternetAccess?: boolean;
+	network?: SandboxNetworkOpts;
+	lifecycle?: SandboxLifecycle;
+}
+
+export type SandboxConfig =
+	| DisabledSandboxConfig
+	| DaytonaSandboxConfig
+	| N8nSandboxConfig
+	| E2BSandboxConfig;
 
 export type SandboxInstance = WorkspaceSandbox;
 export type SandboxFilesystem = WorkspaceFilesystem;

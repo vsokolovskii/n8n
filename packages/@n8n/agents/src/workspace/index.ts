@@ -29,6 +29,7 @@ export type {
 	LocalFilesystemOptions,
 	LocalSandboxOptions,
 	DaytonaSandboxOptions,
+	E2BSandboxOptions,
 	BaseSandboxOptions,
 	MountConfig,
 	MountResult,

@@ -1,3 +1,5 @@
+import type { SandboxLifecycle, SandboxNetworkOpts } from 'e2b';
+
 import type { SandboxProcessManager } from './process';
 
 export type ProviderStatus =
@@ -192,6 +194,23 @@ export interface DaytonaSandboxOptions {
 	name?: string;
 	networkBlockAll?: boolean;
 	networkAllowList?: string;
+}
+
+export interface E2BSandboxOptions {
+	id?: string;
+	apiKey?: string;
+	apiUrl?: string;
+	domain?: string;
+	sandboxUrl?: string;
+	template?: string;
+	timeout?: number;
+	requestTimeoutMs?: number;
+	metadata?: Record<string, string>;
+	env?: Record<string, string>;
+	secure?: boolean;
+	allowInternetAccess?: boolean;
+	network?: SandboxNetworkOpts;
+	lifecycle?: SandboxLifecycle;
 }
 
 export interface WorkspaceConfig {
