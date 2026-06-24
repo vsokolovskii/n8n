@@ -1,5 +1,6 @@
 import {
 	DAYTONA_HOME,
+	E2B_HOME,
 	N8N_SANDBOX_HOME,
 	getPromptWorkspaceRoot,
 	getWorkspaceRoot,
@@ -14,6 +15,10 @@ describe('getPromptWorkspaceRoot', () => {
 
 	it('returns n8n-sandbox workspace root', () => {
 		expect(getPromptWorkspaceRoot('n8n-sandbox')).toBe('/home/user/workspace');
+	});
+
+	it('returns e2b workspace root', () => {
+		expect(getPromptWorkspaceRoot('e2b')).toBe('/home/user/workspace');
 	});
 });
 
@@ -102,6 +107,22 @@ describe('getWorkspaceRoot', () => {
 		} as SandboxWorkspace;
 
 		await expect(getWorkspaceRoot(workspace)).resolves.toBe(`${N8N_SANDBOX_HOME}/${WORKSPACE_DIR}`);
+	});
+
+	it('uses E2B_HOME when echo $HOME returns empty stdout for e2b', async () => {
+		const executeCommand = vi.fn().mockResolvedValue({
+			exitCode: 0,
+			stdout: '   \n',
+			stderr: '',
+		});
+		const workspace = {
+			sandbox: {
+				provider: 'e2b',
+				executeCommand,
+			},
+		} as SandboxWorkspace;
+
+		await expect(getWorkspaceRoot(workspace)).resolves.toBe(`${E2B_HOME}/${WORKSPACE_DIR}`);
 	});
 
 	it('uses DAYTONA_HOME when echo $HOME returns empty stdout without provider metadata', async () => {

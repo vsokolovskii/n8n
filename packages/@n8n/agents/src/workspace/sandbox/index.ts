@@ -8,12 +8,15 @@ export {
 	DAYTONA_WORKSPACE_ROOT,
 	N8N_SANDBOX_HOME,
 	N8N_SANDBOX_WORKSPACE_ROOT,
+	E2B_HOME,
+	E2B_WORKSPACE_ROOT,
 	getPromptWorkspaceRoot,
 	getWorkspaceRoot,
 	type SandboxWorkspace,
 } from './workspace-root';
 export { runInSandbox, type SandboxCommandTarget } from './run-in-sandbox';
 export { loadDaytona } from './lazy-daytona';
+export { loadE2B } from './lazy-e2b';
 export { createFilesystem, createSandbox } from './create-workspace';
 export type {
 	CommandResult,
@@ -24,6 +27,7 @@ export type {
 	SandboxFilesystem,
 	CreateSandboxOptions,
 	DaytonaSandboxConfig,
+	E2BSandboxConfig,
 	N8nSandboxConfig,
 	DisabledSandboxConfig,
 	ExecuteCommandOptions,

@@ -3,9 +3,11 @@ vi.mock('@n8n/utils', () => ({
 }));
 
 import { DaytonaFilesystem } from '../../../workspace/filesystem/daytona-filesystem';
+import { E2BFilesystem } from '../../../workspace/filesystem/e2b-filesystem';
 import { N8nSandboxFilesystem } from '../../../workspace/filesystem/n8n-sandbox-filesystem';
 import { createFilesystem, createSandbox } from '../../../workspace/sandbox/create-workspace';
 import { DaytonaSandbox } from '../../../workspace/sandbox/daytona-sandbox';
+import { E2BSandbox } from '../../../workspace/sandbox/e2b-sandbox';
 import { N8nSandboxServiceSandbox } from '../../../workspace/sandbox/n8n-sandbox-sandbox';
 import type { SandboxConfig } from '../../../workspace/sandbox/types';
 
@@ -135,6 +137,25 @@ describe('createSandbox', () => {
 		expect(result?.provider).toBe('n8n-sandbox');
 	});
 
+	it('returns an E2BSandbox for e2b provider', async () => {
+		const config: SandboxConfig = {
+			enabled: true,
+			provider: 'e2b',
+			apiKey: 'e2b-key',
+			apiUrl: 'https://api.e2b.dev',
+			domain: 'e2b.dev',
+			sandboxUrl: 'https://sandbox.e2b.dev',
+			template: 'base',
+			metadata: { thread_id: 'thread-1' },
+			timeout: 45_000,
+		};
+
+		const result = await createSandbox(config);
+
+		expect(result).toBeInstanceOf(E2BSandbox);
+		expect(result?.provider).toBe('e2b');
+	});
+
 	it('does not include sandbox secrets in unsupported provider errors', async () => {
 		const config = {
 			enabled: true,
@@ -184,5 +205,14 @@ describe('createFilesystem', () => {
 
 		expect(result).toBeInstanceOf(N8nSandboxFilesystem);
 		expect(result.provider).toBe('n8n-sandbox');
+	});
+
+	it('creates an E2BFilesystem for E2BSandbox', () => {
+		const sandbox = new E2BSandbox({ apiKey: 'key' });
+
+		const result = createFilesystem(sandbox);
+
+		expect(result).toBeInstanceOf(E2BFilesystem);
+		expect(result.provider).toBe('e2b');
 	});
 });

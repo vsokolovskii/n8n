@@ -21,6 +21,10 @@ describe('normalizeSandboxProvider', () => {
 		expect(normalizeSandboxProvider('daytona')).toBe('daytona');
 	});
 
+	it('returns e2b for valid e2b value', () => {
+		expect(normalizeSandboxProvider('e2b')).toBe('e2b');
+	});
+
 	it('returns n8n-sandbox for unrecognized value', () => {
 		expect(normalizeSandboxProvider('bad-value')).toBe('n8n-sandbox');
 	});
@@ -29,6 +33,10 @@ describe('normalizeSandboxProvider', () => {
 describe('isSandboxProvider', () => {
 	it('returns true for daytona', () => {
 		expect(isSandboxProvider('daytona')).toBe(true);
+	});
+
+	it('returns true for e2b', () => {
+		expect(isSandboxProvider('e2b')).toBe(true);
 	});
 
 	it('returns false for bad value', () => {

@@ -28,6 +28,11 @@ describe('InstanceAiSettingsService', () => {
 			sandboxProvider: 'n8n-sandbox',
 			sandboxImage: '',
 			sandboxTimeout: 60,
+			e2bApiKey: '',
+			e2bApiUrl: '',
+			e2bDomain: '',
+			e2bSandboxUrl: '',
+			e2bTemplate: '',
 			n8nSandboxServiceUrl: 'http://sandbox-api:8080',
 			n8nSandboxServiceApiKey: '',
 			localGatewayDisabled: false,
@@ -51,6 +56,11 @@ describe('InstanceAiSettingsService', () => {
 			sandboxProvider: 'n8n-sandbox',
 			n8nSandboxServiceUrl: 'http://sandbox-api:8080',
 			n8nSandboxServiceApiKey: '',
+			e2bApiKey: '',
+			e2bApiUrl: '',
+			e2bDomain: '',
+			e2bSandboxUrl: '',
+			e2bTemplate: '',
 			mcpServers: '',
 			browserMcp: false,
 		});
@@ -160,6 +170,27 @@ describe('InstanceAiSettingsService', () => {
 				workflowBuilderAvailable: false,
 				unavailableReason:
 					'N8N_SANDBOX_SERVICE_URL is required when Instance AI sandbox provider is n8n-sandbox.',
+			});
+		});
+
+		it('should require an API key when enabling E2B sandbox', async () => {
+			aiService.isProxyEnabled.mockReturnValue(false);
+
+			await expect(
+				service.updateAdminSettings({ sandboxEnabled: true, sandboxProvider: 'e2b' }),
+			).rejects.toThrow(/E2B_API_KEY/);
+		});
+
+		it('should expose workflow builder as unavailable when E2B API key is missing', () => {
+			globalConfig.instanceAi.sandboxEnabled = true;
+			globalConfig.instanceAi.sandboxProvider = 'e2b';
+			globalConfig.instanceAi.e2bApiKey = '';
+
+			expect(service.getSandboxStatus()).toEqual({
+				enabled: true,
+				provider: 'e2b',
+				workflowBuilderAvailable: false,
+				unavailableReason: 'E2B_API_KEY is required when Instance AI sandbox provider is e2b.',
 			});
 		});
 	});

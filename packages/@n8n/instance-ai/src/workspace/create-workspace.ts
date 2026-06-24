@@ -5,6 +5,7 @@ import {
 	type CreateSandboxOptions,
 	type DaytonaSandboxConfig,
 	type DisabledSandboxConfig,
+	type E2BSandboxConfig,
 	type N8nSandboxConfig,
 	type SandboxConfig as SharedSandboxConfig,
 	type SandboxInstance,
@@ -22,9 +23,15 @@ export type InstanceAiDaytonaSandboxConfig = DaytonaSandboxConfig & {
 	namePrefix?: string;
 };
 
+export type InstanceAiE2BSandboxConfig = E2BSandboxConfig & {
+	/** Prefix surfaced as E2B metadata for thread-scoped reconnects. */
+	namePrefix?: string;
+};
+
 export type InstanceAiSandboxConfig =
 	| DisabledSandboxConfig
 	| InstanceAiDaytonaSandboxConfig
+	| InstanceAiE2BSandboxConfig
 	| N8nSandboxConfig;
 
 export type SandboxConfig = InstanceAiSandboxConfig;
@@ -64,8 +71,14 @@ function toSharedDaytonaSandboxConfig(
 }
 
 function toSharedSandboxConfig(config: InstanceAiSandboxConfig): SharedSandboxConfig {
-	if (!config.enabled || config.provider !== 'daytona') return config;
-	return toSharedDaytonaSandboxConfig(config);
+	if (!config.enabled) return config;
+	if (config.provider === 'daytona') return toSharedDaytonaSandboxConfig(config);
+	if (config.provider === 'e2b') {
+		const sharedConfig = { ...config };
+		delete sharedConfig.namePrefix;
+		return sharedConfig;
+	}
+	return config;
 }
 
 /**
@@ -74,6 +87,7 @@ function toSharedSandboxConfig(config: InstanceAiSandboxConfig): SharedSandboxCo
  *
  * - 'daytona': Isolated Docker container via Daytona API.
  * - 'n8n-sandbox': n8n sandbox service-backed container.
+ * - 'e2b': E2B cloud sandbox.
  */
 export async function createSandbox(
 	config: InstanceAiSandboxConfig,

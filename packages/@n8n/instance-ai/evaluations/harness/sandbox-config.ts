@@ -2,7 +2,7 @@
 // Sandbox config resolution for evaluations.
 //
 // Reads the same env vars production reads (N8N_INSTANCE_AI_SANDBOX_*,
-// DAYTONA_*, N8N_SANDBOX_SERVICE_*) and produces a SandboxConfig the
+// DAYTONA_*, E2B_*, N8N_SANDBOX_SERVICE_*) and produces a SandboxConfig the
 // in-process eval harness can use to create the shared builder workspace.
 //
 // The sandbox is always on for evals — there is no opt-out. Missing
@@ -19,7 +19,7 @@ const DEFAULT_TIMEOUT_MS = 300_000;
  * than the SDK's 300s default; 900s avoids spurious eval-run failures.
  */
 const DEFAULT_DAYTONA_CREATE_TIMEOUT_SECONDS = 900;
-const VALID_PROVIDERS: SandboxProvider[] = ['n8n-sandbox', 'daytona'];
+const VALID_PROVIDERS: SandboxProvider[] = ['n8n-sandbox', 'daytona', 'e2b'];
 
 export function resolveSandboxConfig(env: NodeJS.ProcessEnv): SandboxConfig {
 	const providerRaw = env.N8N_INSTANCE_AI_SANDBOX_PROVIDER ?? 'n8n-sandbox';
@@ -59,6 +59,31 @@ export function resolveSandboxConfig(env: NodeJS.ProcessEnv): SandboxConfig {
 			timeout,
 			createTimeoutSeconds,
 			...(image ? { image } : {}),
+			...(namePrefix ? { namePrefix } : {}),
+		};
+	}
+
+	if (provider === 'e2b') {
+		const apiKey = env.E2B_API_KEY;
+		if (!apiKey) {
+			throw new Error(
+				'E2B_API_KEY is required for sandbox provider "e2b". Set the E2B API key.',
+			);
+		}
+		const apiUrl = env.E2B_API_URL;
+		const domain = env.E2B_DOMAIN;
+		const sandboxUrl = env.E2B_SANDBOX_URL;
+		const template = env.N8N_INSTANCE_AI_E2B_TEMPLATE;
+		const namePrefix = env.N8N_INSTANCE_AI_SANDBOX_NAME_PREFIX;
+		return {
+			enabled: true,
+			provider: 'e2b',
+			apiKey,
+			timeout,
+			...(apiUrl ? { apiUrl } : {}),
+			...(domain ? { domain } : {}),
+			...(sandboxUrl ? { sandboxUrl } : {}),
+			...(template ? { template } : {}),
 			...(namePrefix ? { namePrefix } : {}),
 		};
 	}

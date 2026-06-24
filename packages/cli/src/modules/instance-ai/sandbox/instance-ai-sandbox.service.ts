@@ -15,7 +15,11 @@ import { nanoid } from 'nanoid';
 
 import { N8N_VERSION } from '@/constants';
 
-import { normalizeSandboxProvider, requireN8nSandboxServiceUrl } from '../sandbox-provider';
+import {
+	normalizeSandboxProvider,
+	requireE2BApiKey,
+	requireN8nSandboxServiceUrl,
+} from '../sandbox-provider';
 
 const SANDBOX_NAME_MAX_LEN = 63;
 const SANDBOX_LABEL_MAX_LEN = 63;
@@ -79,18 +83,32 @@ function buildThreadScopedSandboxLabels(
 }
 
 function withThreadScopedSandboxIdentity(config: SandboxConfig, threadId: string): SandboxConfig {
-	if (!config.enabled || config.provider !== 'daytona') return config;
+	if (!config.enabled) return config;
 
-	const name = buildThreadScopedSandboxName(threadId, config.namePrefix);
-	return {
-		...config,
-		id: name,
-		name,
-		labels: {
-			...buildThreadScopedSandboxLabels(threadId, config.namePrefix),
-			...config.labels,
-		},
-	};
+	if (config.provider === 'daytona') {
+		const name = buildThreadScopedSandboxName(threadId, config.namePrefix);
+		return {
+			...config,
+			id: name,
+			name,
+			labels: {
+				...buildThreadScopedSandboxLabels(threadId, config.namePrefix),
+				...config.labels,
+			},
+		};
+	}
+
+	if (config.provider === 'e2b') {
+		return {
+			...config,
+			metadata: {
+				...buildThreadScopedSandboxLabels(threadId, config.namePrefix),
+				...config.metadata,
+			},
+		};
+	}
+
+	return config;
 }
 
 /** Thread-run state the sandbox lifecycle consults to know when a workspace is still in use. */
@@ -171,6 +189,11 @@ export class InstanceAiSandboxService {
 			sandboxProvider,
 			daytonaApiUrl,
 			daytonaApiKey,
+			e2bApiKey,
+			e2bApiUrl,
+			e2bDomain,
+			e2bSandboxUrl,
+			e2bTemplate,
 			n8nSandboxServiceUrl,
 			n8nSandboxServiceApiKey,
 			sandboxImage,
@@ -208,6 +231,20 @@ export class InstanceAiSandboxService {
 				// if we also pass a non-zero value, so leave it unset on the ephemeral path.
 				autoDeleteInterval: sandboxEphemeral ? undefined : sandboxAutoDeleteMinutes,
 				refreshSkewMs: daytonaTokenRefreshSkewMs,
+			};
+		}
+
+		if (provider === 'e2b') {
+			return {
+				enabled: true,
+				provider: 'e2b',
+				apiKey: requireE2BApiKey(e2bApiKey ?? ''),
+				apiUrl: e2bApiUrl || undefined,
+				domain: e2bDomain || undefined,
+				sandboxUrl: e2bSandboxUrl || undefined,
+				template: e2bTemplate || undefined,
+				timeout: sandboxTimeout,
+				namePrefix: sandboxNamePrefix || undefined,
 			};
 		}
 
@@ -252,6 +289,7 @@ export class InstanceAiSandboxService {
 				daytonaApiKey: daytona.apiKey ?? base.daytonaApiKey,
 			};
 		}
+		if (base.provider === 'e2b') return base;
 		const sandbox = await this.options.settingsService.resolveN8nSandboxConfig(user);
 		return {
 			...base,

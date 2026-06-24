@@ -6,7 +6,7 @@ Today the main consumer is the workflow builder. The agent writes TypeScript fil
 
 ## How the Pieces Fit Together
 
-There are three layers between the agent and actual code execution: a workspace abstraction from `@n8n/agents`, a sandbox provider (n8n sandbox service or Daytona), and the execution runtime inside the sandbox. Here is how they relate:
+There are three layers between the agent and actual code execution: a workspace abstraction from `@n8n/agents`, a sandbox provider (n8n sandbox service, Daytona, or E2B), and the execution runtime inside the sandbox. Here is how they relate:
 
 ```mermaid
 graph TB
@@ -23,8 +23,10 @@ graph TB
     subgraph Providers ["Sandbox Providers"]
         FS --> DaytonaFS["Daytona Filesystem<br/>(remote API calls)"]
         FS --> N8nFS["n8n Sandbox FS<br/>(remote API calls)"]
+        FS --> E2BFS["E2B Filesystem<br/>(remote API calls)"]
         Sandbox --> DaytonaSB["Daytona Sandbox<br/>(remote container)"]
         Sandbox --> N8nSB["n8n Sandbox Service<br/>(remote container)"]
+        Sandbox --> E2BSB["E2B Sandbox<br/>(remote container)"]
     end
 
     subgraph Runtime ["Execution Runtime"]
@@ -32,6 +34,8 @@ graph TB
         DaytonaFS --> Container
         N8nSB --> Container
         N8nFS --> Container
+        E2BSB --> Container
+        E2BFS --> Container
     end
 
     style Agent fill:#f3e8ff,stroke:#7c3aed
@@ -40,7 +44,7 @@ graph TB
     style Runtime fill:#dcfce7,stroke:#16a34a
 ```
 
-The agent never talks to Daytona, the n8n sandbox service, or the host filesystem directly. It only sees the Workspace, which exposes two capabilities: a filesystem (read/write/list files) and a sandbox (run shell commands). The Workspace routes those operations to whichever provider is configured.
+The agent never talks to Daytona, E2B, the n8n sandbox service, or the host filesystem directly. It only sees the Workspace, which exposes two capabilities: a filesystem (read/write/list files) and a sandbox (run shell commands). The Workspace routes those operations to whichever provider is configured.
 
 ## Workspaces
 
@@ -51,7 +55,7 @@ The agent never talks to Daytona, the n8n sandbox service, or the host filesyste
 
 When a Workspace is attached to an agent, `@n8n/agents` automatically exposes built-in tools to the LLM: `read_file`, `write_file`, `edit_file`, `list_files`, `grep`, `execute_command`, and others. The agent uses these tools naturally in its reasoning loop — it writes a file, runs a command, reads the output, and decides what to do next.
 
-The key design property is that the Workspace abstraction is provider-agnostic. The agent's code and prompts are identical regardless of whether the workspace is backed by n8n sandbox service or Daytona. The provider choice is purely an infrastructure decision.
+The key design property is that the Workspace abstraction is provider-agnostic. The agent's code and prompts are identical regardless of whether the workspace is backed by n8n sandbox service, Daytona, or E2B. The provider choice is purely an infrastructure decision.
 
 ```mermaid
 graph LR
@@ -153,15 +157,21 @@ For local development, point `N8N_SANDBOX_SERVICE_URL` and
 `N8N_SANDBOX_SERVICE_API_KEY` at a running sandbox service and enable
 `N8N_INSTANCE_AI_SANDBOX_ENABLED=true`.
 
+## E2B: Explicit Container Provider
+
+E2B is a third-party sandbox platform for creating isolated cloud containers. Instance AI uses it through the E2B SDK and the same `@n8n/agents` workspace interfaces as the other sandbox providers.
+
+E2B sandboxes are identified by remote sandbox IDs assigned by E2B. Because E2B does not support caller-selected sandbox names, thread-scoped reconnects use E2B metadata rather than deterministic sandbox names. `stop()` pauses a sandbox so it can be resumed, while explicit destruction kills it.
+
 ### Providers at a glance
 
-| | n8n sandbox service | Daytona |
-| --- | --- | --- |
-| **Isolation** | Service-managed container boundary | Daytona-managed container boundary |
-| **Where commands run** | Sandbox service runner via API | Remote container via Daytona API |
-| **Where files live** | Sandbox service filesystem API | Daytona filesystem API |
-| **Production use** | Default provider | Explicit provider |
-| **Setup required** | Sandbox API + runner sidecars | Daytona account/API or proxy |
+| | n8n sandbox service | Daytona | E2B |
+| --- | --- | --- | --- |
+| **Isolation** | Service-managed container boundary | Daytona-managed container boundary | E2B-managed container boundary |
+| **Where commands run** | Sandbox service runner via API | Remote container via Daytona API | Remote container via E2B API |
+| **Where files live** | Sandbox service filesystem API | Daytona filesystem API | E2B filesystem API |
+| **Production use** | Default provider | Explicit provider | Explicit provider |
+| **Setup required** | Sandbox API + runner sidecars | Daytona account/API or proxy | E2B API key |
 
 ## Lifecycle
 
@@ -239,14 +249,19 @@ If any step fails, the agent reads the error output, fixes the code, and retries
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `N8N_INSTANCE_AI_SANDBOX_ENABLED` | `false` | Master switch for sandboxing |
-| `N8N_INSTANCE_AI_SANDBOX_PROVIDER` | `n8n-sandbox` | Which provider to use: `n8n-sandbox` or `daytona` |
+| `N8N_INSTANCE_AI_SANDBOX_PROVIDER` | `n8n-sandbox` | Which provider to use: `n8n-sandbox`, `daytona`, or `e2b` |
 | `DAYTONA_API_URL` | — | Daytona API endpoint (required for Daytona) |
 | `DAYTONA_API_KEY` | — | Daytona API key (required for Daytona) |
+| `E2B_API_KEY` | — | E2B API key (required for E2B) |
+| `E2B_API_URL` | — | Optional E2B API URL override |
+| `E2B_DOMAIN` | — | Optional E2B domain override |
+| `E2B_SANDBOX_URL` | — | Optional E2B sandbox URL override |
+| `N8N_INSTANCE_AI_E2B_TEMPLATE` | — | Optional E2B sandbox template name or ID |
 | `N8N_SANDBOX_SERVICE_URL` | — | n8n sandbox service URL (required for `n8n-sandbox`) |
 | `N8N_SANDBOX_SERVICE_API_KEY` | — | n8n sandbox service API key (optional when using an `httpHeaderAuth` credential) |
 | `N8N_INSTANCE_AI_SANDBOX_IMAGE` | `daytonaio/sandbox:0.5.0` | Base container image for Daytona |
 | `N8N_INSTANCE_AI_SANDBOX_TIMEOUT` | `300000` | Command timeout in milliseconds |
-| `N8N_INSTANCE_AI_SANDBOX_NAME_PREFIX` | — | Prefix for every Daytona sandbox name (e.g. `eval-baseline-daily`). Also added as a `name_prefix` label. Empty in production. |
+| `N8N_INSTANCE_AI_SANDBOX_NAME_PREFIX` | — | Prefix for provider identity metadata/labels (e.g. `eval-baseline-daily`). Empty in production. |
 | `N8N_INSTANCE_AI_SANDBOX_EPHEMERAL` | `false` | Create Daytona sandboxes ephemeral (auto-deleted on stop) instead of lingering stopped. Intended for throwaway eval instances so sandboxes don't accumulate. |
 | `N8N_INSTANCE_AI_SANDBOX_AUTO_STOP_MINUTES` | `15` | Minutes an idle sandbox waits before Daytona stops it. `0` = disabled (stays running). |
 | `N8N_INSTANCE_AI_SANDBOX_AUTO_ARCHIVE_MINUTES` | `10080` (7 days) | Minutes a stopped sandbox waits before Daytona archives it to cold storage. `0` = Daytona's max interval. |
