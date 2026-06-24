@@ -1,0 +1,20 @@
+{
+	"node": "n8n-nodes-base.e2b",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Development"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://e2b.dev/docs/getting-started/api-key"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://e2b.dev/docs"
+			}
+		],
+		"generic": []
+	},
+	"alias": ["Sandbox", "Code Interpreter", "Cloud Runtime", "Command"]
+}
