@@ -6,6 +6,8 @@ export const DAYTONA_HOME = '/home/daytona';
 export const DAYTONA_WORKSPACE_ROOT = `${DAYTONA_HOME}/${WORKSPACE_DIR}`;
 export const N8N_SANDBOX_HOME = '/home/user';
 export const N8N_SANDBOX_WORKSPACE_ROOT = `${N8N_SANDBOX_HOME}/${WORKSPACE_DIR}`;
+export const E2B_HOME = '/home/user';
+export const E2B_WORKSPACE_ROOT = `${E2B_HOME}/${WORKSPACE_DIR}`;
 
 export function getPromptWorkspaceRoot(provider: SandboxProvider): string {
 	switch (provider) {
@@ -13,6 +15,8 @@ export function getPromptWorkspaceRoot(provider: SandboxProvider): string {
 			return DAYTONA_WORKSPACE_ROOT;
 		case 'n8n-sandbox':
 			return N8N_SANDBOX_WORKSPACE_ROOT;
+		case 'e2b':
+			return E2B_WORKSPACE_ROOT;
 	}
 }
 
@@ -50,6 +54,8 @@ function getFallbackHome(workspace: SandboxWorkspace): string {
 			return N8N_SANDBOX_HOME;
 		case 'daytona':
 			return DAYTONA_HOME;
+		case 'e2b':
+			return E2B_HOME;
 		case undefined:
 		default:
 			return DAYTONA_HOME;

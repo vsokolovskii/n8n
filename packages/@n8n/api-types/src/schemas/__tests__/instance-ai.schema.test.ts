@@ -14,6 +14,7 @@ describe('sandbox provider', () => {
 	it('accepts supported providers', () => {
 		expect(isInstanceAiSandboxProvider('n8n-sandbox')).toBe(true);
 		expect(isInstanceAiSandboxProvider('daytona')).toBe(true);
+		expect(isInstanceAiSandboxProvider('e2b')).toBe(true);
 	});
 
 	it('rejects unsupported or non-string providers', () => {
@@ -28,6 +29,9 @@ describe('sandbox provider', () => {
 		).toBe(false);
 		expect(
 			InstanceAiAdminSettingsUpdateRequest.safeParse({ sandboxProvider: 'n8n-sandbox' }).success,
+		).toBe(true);
+		expect(
+			InstanceAiAdminSettingsUpdateRequest.safeParse({ sandboxProvider: 'e2b' }).success,
 		).toBe(true);
 	});
 });

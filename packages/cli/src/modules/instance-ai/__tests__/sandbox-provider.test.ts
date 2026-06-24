@@ -3,8 +3,10 @@ import { normalizeSandboxProvider as normalizeRuntimeSandboxProvider } from '@n8
 import { OperationalError } from 'n8n-workflow';
 
 import {
+	E2B_API_KEY_REQUIRED_MESSAGE,
 	N8N_SANDBOX_SERVICE_URL_REQUIRED_MESSAGE,
 	normalizeSandboxProvider,
+	requireE2BApiKey,
 	requireN8nSandboxServiceUrl,
 } from '../sandbox-provider';
 
@@ -19,6 +21,7 @@ describe('sandbox-provider', () => {
 		it('returns supported sandbox providers unchanged', () => {
 			expect(normalizeSandboxProvider('n8n-sandbox')).toBe('n8n-sandbox');
 			expect(normalizeSandboxProvider('daytona')).toBe('daytona');
+			expect(normalizeSandboxProvider('e2b')).toBe('e2b');
 		});
 
 		it('falls back to n8n-sandbox for unsupported values', () => {
@@ -39,6 +42,17 @@ describe('sandbox-provider', () => {
 			expect(() => requireN8nSandboxServiceUrl('   ')).toThrow(
 				N8N_SANDBOX_SERVICE_URL_REQUIRED_MESSAGE,
 			);
+		});
+	});
+
+	describe('requireE2BApiKey', () => {
+		it('trims and returns a configured API key', () => {
+			expect(requireE2BApiKey('  e2b-key  ')).toBe('e2b-key');
+		});
+
+		it('throws an operational error when the API key is missing', () => {
+			expect(() => requireE2BApiKey('   ')).toThrow(OperationalError);
+			expect(() => requireE2BApiKey('   ')).toThrow(E2B_API_KEY_REQUIRED_MESSAGE);
 		});
 	});
 });

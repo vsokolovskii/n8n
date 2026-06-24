@@ -41,6 +41,7 @@ import {
 } from '../create-workspace';
 
 type DaytonaSandboxConfig = Extract<SandboxConfig, { enabled: true; provider: 'daytona' }>;
+type E2BSandboxConfig = Extract<SandboxConfig, { enabled: true; provider: 'e2b' }>;
 
 const sandbox = {
 	id: 'sandbox-1',
@@ -108,6 +109,32 @@ describe('createSandbox', () => {
 
 		expect(mockSnapshotManagerConstructor).not.toHaveBeenCalled();
 		expect(mockCreateSharedSandbox).toHaveBeenCalledWith(config, { logger, errorReporter });
+	});
+
+	it('delegates E2B config to the shared factory without snapshot fallback', async () => {
+		const config: SandboxConfig = {
+			enabled: true,
+			provider: 'e2b',
+			apiKey: 'e2b-key',
+			template: 'base',
+			metadata: { thread_id: 'thread-1' },
+			namePrefix: 'dev',
+			timeout: 45_000,
+		};
+
+		await expect(createSandbox(config, { logger, errorReporter })).resolves.toBe(sandbox);
+
+		expect(mockSnapshotManagerConstructor).not.toHaveBeenCalled();
+		const sharedConfig = mockCreateSharedSandbox.mock.calls[0][0] as E2BSandboxConfig;
+		expect(sharedConfig).toEqual({
+			enabled: true,
+			provider: 'e2b',
+			apiKey: 'e2b-key',
+			template: 'base',
+			metadata: { thread_id: 'thread-1' },
+			timeout: 45_000,
+		});
+		expect(mockCreateSharedSandbox).toHaveBeenCalledWith(sharedConfig, { logger, errorReporter });
 	});
 
 	it('delegates Daytona config when snapshot fallback is not requested', async () => {

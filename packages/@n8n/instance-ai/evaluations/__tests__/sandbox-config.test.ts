@@ -91,6 +91,41 @@ describe('resolveSandboxConfig', () => {
 		expect(config.createTimeoutSeconds).toBe(1800);
 	});
 
+	it('returns an e2b config when E2B env vars are set', () => {
+		const env = baseEnv({
+			N8N_INSTANCE_AI_SANDBOX_PROVIDER: 'e2b',
+			E2B_API_KEY: 'e2b-key',
+			E2B_API_URL: 'https://api.e2b.dev',
+			E2B_DOMAIN: 'e2b.dev',
+			E2B_SANDBOX_URL: 'https://sandbox.e2b.dev',
+			N8N_INSTANCE_AI_E2B_TEMPLATE: 'base',
+			N8N_INSTANCE_AI_SANDBOX_TIMEOUT: '600000',
+			N8N_INSTANCE_AI_SANDBOX_NAME_PREFIX: 'eval-baseline-daily',
+		});
+
+		const config = resolveSandboxConfig(env);
+
+		expect(config).toEqual({
+			enabled: true,
+			provider: 'e2b',
+			apiKey: 'e2b-key',
+			apiUrl: 'https://api.e2b.dev',
+			domain: 'e2b.dev',
+			sandboxUrl: 'https://sandbox.e2b.dev',
+			template: 'base',
+			timeout: 600_000,
+			namePrefix: 'eval-baseline-daily',
+		});
+	});
+
+	it('throws a clear error when E2B_API_KEY is missing', () => {
+		const env = baseEnv({
+			N8N_INSTANCE_AI_SANDBOX_PROVIDER: 'e2b',
+		});
+
+		expect(() => resolveSandboxConfig(env)).toThrow(/E2B_API_KEY/);
+	});
+
 	it('rejects a non-integer createTimeoutSeconds', () => {
 		const env = baseEnv({
 			N8N_INSTANCE_AI_SANDBOX_PROVIDER: 'daytona',

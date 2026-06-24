@@ -167,6 +167,38 @@ describe('InstanceAiSandboxService', () => {
 				apiKey: 'admin-key',
 			});
 		});
+
+		it('uses E2B env config directly', async () => {
+			const { service, settingsService } = createSandboxService({
+				config: {
+					sandboxEnabled: true,
+					sandboxProvider: 'e2b',
+					e2bApiKey: 'e2b-key',
+					e2bApiUrl: 'https://api.e2b.dev',
+					e2bDomain: 'e2b.dev',
+					e2bSandboxUrl: 'https://sandbox.e2b.dev',
+					e2bTemplate: 'base',
+					sandboxTimeout: 1000,
+					sandboxNamePrefix: 'Eval',
+				},
+			});
+
+			const config = await service.resolveSandboxConfig(fakeUser);
+
+			expect(settingsService.resolveDaytonaConfig).not.toHaveBeenCalled();
+			expect(settingsService.resolveN8nSandboxConfig).not.toHaveBeenCalled();
+			expect(config).toMatchObject({
+				enabled: true,
+				provider: 'e2b',
+				apiKey: 'e2b-key',
+				apiUrl: 'https://api.e2b.dev',
+				domain: 'e2b.dev',
+				sandboxUrl: 'https://sandbox.e2b.dev',
+				template: 'base',
+				timeout: 1000,
+				namePrefix: 'Eval',
+			});
+		});
 	});
 
 	describe('getSandboxConfigFromEnv', () => {
@@ -241,6 +273,34 @@ describe('InstanceAiSandboxService', () => {
 			expect(config).toMatchObject({ provider: 'daytona', ephemeral: true });
 			expect((config as { autoDeleteInterval?: number }).autoDeleteInterval).toBeUndefined();
 		});
+
+		it('creates E2B config from env values', () => {
+			const { service } = createSandboxService({
+				config: {
+					sandboxEnabled: true,
+					sandboxProvider: 'e2b',
+					e2bApiKey: 'e2b-key',
+					e2bApiUrl: 'https://api.e2b.dev',
+					e2bDomain: 'e2b.dev',
+					e2bSandboxUrl: 'https://sandbox.e2b.dev',
+					e2bTemplate: 'base',
+					sandboxTimeout: 1000,
+					sandboxNamePrefix: 'Eval',
+				},
+			});
+
+			expect(service.getSandboxConfigFromEnv()).toMatchObject({
+				enabled: true,
+				provider: 'e2b',
+				apiKey: 'e2b-key',
+				apiUrl: 'https://api.e2b.dev',
+				domain: 'e2b.dev',
+				sandboxUrl: 'https://sandbox.e2b.dev',
+				template: 'base',
+				timeout: 1000,
+				namePrefix: 'Eval',
+			});
+		});
 	});
 
 	describe('workspace lifecycle', () => {
@@ -304,6 +364,36 @@ describe('InstanceAiSandboxService', () => {
 					id: 'acme-eval-instance-ai-thread-thread-1',
 					name: 'acme-eval-instance-ai-thread-thread-1',
 					labels: expect.objectContaining({
+						'n8n-builder': 'instance-ai-thread-thread-1',
+						name_prefix: 'Acme-Eval',
+						thread_id: 'thread-1',
+					}),
+				}),
+				expect.objectContaining({ useSnapshotFallback: true }),
+			);
+		});
+
+		it('threads E2B metadata through sandbox creation', async () => {
+			const { service } = createSandboxService({
+				config: {
+					sandboxEnabled: true,
+					sandboxProvider: 'e2b',
+					e2bApiKey: 'e2b-key',
+					sandboxNamePrefix: 'Acme Eval',
+				},
+			});
+			const sandbox = { id: 'sandbox-1' };
+			const workspace = { init: jest.fn(async () => {}), destroy: jest.fn(async () => {}) };
+			(createSandbox as jest.Mock).mockResolvedValue(sandbox);
+			(createWorkspace as jest.Mock).mockReturnValue(workspace);
+			(setupSandboxWorkspace as jest.Mock).mockResolvedValue(undefined);
+
+			await service.getOrCreateWorkspace('thread-1', fakeUser, {} as InstanceAiContext);
+
+			expect(createSandbox).toHaveBeenCalledWith(
+				expect.objectContaining({
+					provider: 'e2b',
+					metadata: expect.objectContaining({
 						'n8n-builder': 'instance-ai-thread-thread-1',
 						name_prefix: 'Acme-Eval',
 						thread_id: 'thread-1',

@@ -26,6 +26,7 @@ import { AiService } from '@/services/ai.service';
 import { UserService } from '@/services/user.service';
 
 import {
+	E2B_API_KEY_REQUIRED_MESSAGE,
 	N8N_SANDBOX_SERVICE_URL_REQUIRED_MESSAGE,
 	normalizeSandboxProvider,
 } from './sandbox-provider';
@@ -582,6 +583,14 @@ export class InstanceAiSettingsService {
 			this.config.n8nSandboxServiceUrl.trim().length === 0
 		) {
 			return N8N_SANDBOX_SERVICE_URL_REQUIRED_MESSAGE;
+		}
+
+		if (
+			sandboxEnabled &&
+			sandboxProvider === 'e2b' &&
+			this.config.e2bApiKey.trim().length === 0
+		) {
+			return E2B_API_KEY_REQUIRED_MESSAGE;
 		}
 
 		return null;
